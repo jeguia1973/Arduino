@@ -26,6 +26,8 @@
 #define CONT_STACKGUARD 0xfeefeffe
 
 void cont_init(cont_t* cont) {
+    memset(cont, 0, sizeof(cont_t));
+    
     cont->stack_guard1 = CONT_STACKGUARD;
     cont->stack_guard2 = CONT_STACKGUARD;
     cont->stack_end = cont->stack + (sizeof(cont->stack) / 4);

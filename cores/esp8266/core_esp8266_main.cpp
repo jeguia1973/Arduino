@@ -40,6 +40,9 @@ extern "C" {
 
 #define OPTIMISTIC_YIELD_TIME_US 16000
 
+
+extern "C" void call_user_start();
+
 struct rst_info resetInfo;
 
 extern "C" {
@@ -76,14 +79,14 @@ void preloop_update_frequency() {
 extern void (*__init_array_start)(void);
 extern void (*__init_array_end)(void);
 
-cont_t g_cont __attribute__ ((aligned (16)));
+cont_t* g_pcont __attribute__((section(".noinit")));
 static os_event_t g_loop_queue[LOOP_QUEUE_SIZE];
 
 static uint32_t g_micros_at_task_start;
 
 extern "C" void esp_yield() {
-    if (cont_can_yield(&g_cont)) {
-        cont_yield(&g_cont);
+    if (cont_can_yield(g_pcont)) {
+        cont_yield(g_pcont);
     }
 }
 
@@ -92,7 +95,7 @@ extern "C" void esp_schedule() {
 }
 
 extern "C" void __yield() {
-    if (cont_can_yield(&g_cont)) {
+    if (cont_can_yield(g_pcont)) {
         esp_schedule();
         esp_yield();
     }
@@ -104,7 +107,7 @@ extern "C" void __yield() {
 extern "C" void yield(void) __attribute__ ((weak, alias("__yield")));
 
 extern "C" void optimistic_yield(uint32_t interval_us) {
-    if (cont_can_yield(&g_cont) &&
+    if (cont_can_yield(g_pcont) &&
         (system_get_time() - g_micros_at_task_start) > interval_us)
     {
         yield();
@@ -126,8 +129,8 @@ static void loop_wrapper() {
 static void loop_task(os_event_t *events) {
     (void) events;
     g_micros_at_task_start = system_get_time();
-    cont_run(&g_cont, &loop_wrapper);
-    if (cont_check(&g_cont) != 0) {
+    cont_run(g_pcont, &loop_wrapper);
+    if (cont_check(g_pcont) != 0) {
         panic();
     }
 }
@@ -146,6 +149,12 @@ void init_done() {
 }
 
 
+extern "C" void ICACHE_RAM_ATTR app_entry(void) {
+    cont_t s_cont __attribute__((aligned(16)));
+    g_pcont = &s_cont;
+    call_user_start();
+}
+
 extern "C" void user_init(void) {
     struct rst_info *rtc_info_ptr = system_get_rst_info();
     memcpy((void *) &resetInfo, (void *) rtc_info_ptr, sizeof(resetInfo));
@@ -156,7 +165,7 @@ extern "C" void user_init(void) {
 
     initVariant();
 
-    cont_init(&g_cont);
+    cont_init(g_pcont);
 
     ets_task(loop_task,
         LOOP_TASK_PRIORITY, g_loop_queue,
